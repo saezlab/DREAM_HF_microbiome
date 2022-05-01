@@ -1,4 +1,4 @@
-runsiamcat <- function(featTable, metaTable, fileName, case, ml, norm, cutoff.p){
+runsiamcat <- function(featTable, metaTable, fileName, label_new, case, ml, norm, cutoff.p){
   dim(featTable)
   fileName=paste(fileName, ml, norm, cutoff.p)
   print(fileName)
@@ -6,7 +6,7 @@ runsiamcat <- function(featTable, metaTable, fileName, case, ml, norm, cutoff.p)
   # create SIAMCAT object and classify
   siamcat <- siamcat(feat=featTable, 
                      meta=metaTable, 
-                     label="Event", 
+                     label=label_new, 
                      case=case)
   # abundance and prevelance filtering
   siamcat <- filter.features(siamcat,
@@ -34,7 +34,7 @@ runsiamcat <- function(featTable, metaTable, fileName, case, ml, norm, cutoff.p)
                                           Sys.Date(), fileName, 'assoc.plot.pdf'))
 
   # train model
-  siamcat <- create.data.split(siamcat, num.folds =10, num.resample = 10)  
+  siamcat <- create.data.split(siamcat, num.folds =2, num.resample = 2)  
   siamcat <- train.model(siamcat, method = ml, verbose = 3)
   siamcat <- make.predictions(siamcat)
   siamcat <- evaluate.predictions(siamcat)    
