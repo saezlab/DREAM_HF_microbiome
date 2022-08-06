@@ -32,11 +32,35 @@ test_algorithm <- function (S1, O1, S2, O2, file) {
   res <- data.frame(SampleID=rownames(S2), Score=sample(scores[rownames(S2)]))  # Fully random
 
   # Write the scoring table for evaluation
-  write.csv(res, file=file,quote=FALSE,row.names=FALSE)
+  write.csv(res, file=file, quote=FALSE, row.names=FALSE)
+  return(res)
 
 }
 
-
 # Write predictions to a file
-tmp <- test_algorithm(S1, O1, S2, O2, file = "scores.csv")
+scores <- test_algorithm( S.train, O.train,S.test, O.test, file = paste0(PARAM$folder.result, "scores.csv"))
+###############################################################################
+# Harralls C 
+labels=S.train
+labels$SampleID<- rownames(S.train)
 
+# Align the user provided scores with the true event times
+true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
+
+# Calculate Harrell's C statistics
+C <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
+#print(C["C Index"])
+write.csv(C, file=paste0(PARAM$folder,"HarrellC.csv"))
+###############################################################################
+# hosmer lemesrow test
+options(width=200) # characters per line
+source("Hosmer.test_etc.R")
+
+dat <- subset(data,select=predictors,PrevalentHFAIL==0&!is.na(Event))
+var=predictors
+
+res <- coxph(Surv(Event_time, Event)~.,data=dat)
+
+pred <- Coxar(res,years=16)
+test <- HosLem.test(res$y,pred,plot=FALSE)
+test$pval

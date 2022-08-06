@@ -14,7 +14,7 @@ setwd("~/Documents/SAEZ/projects/DREAM_HF_microbiome")
 
 # load libraries and set parameters
 library(tidyverse)
-library(SIAMCAT)
+library(SIAMCAT) 
 library(survminer)
 library(survival)
 library(randomForestSRC)
@@ -347,5 +347,13 @@ dev.off()
 # plot(bs.km, type = "s", col = 2)
 # lines(bs.rsf, type ="s", col = 4)
 # legend("bottomright", legend = c("cens.model = km", "cens.model = rfsrc"), fill = c(2,4))
-
+# Data preparation and computing cox model
+library(survival)
+lung$sex <- factor(lung$sex, levels = c(1,2),
+                   labels = c("Male", "Female"))
+res.cox <- coxph(Surv(time, status) ~ sex + age + ph.ecog, data =  lung)
+# Plot the baseline survival function
+# with showing all individual predicted surv. curves
+ggcoxadjustedcurves(res.cox, data = lung,
+                    individual.curves = TRUE)
 ```
