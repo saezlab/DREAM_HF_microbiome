@@ -14,7 +14,7 @@ FROM: bioconductor/bioconductor_docker:devel
 # Part of other dependencies: "magrittr" (tidyverse),
 
 ## Install CRAN packages
-R --slave  -e 'install.packages(c("tidyverse", "Hmisc", "smoothHR", "reshape2", "ggsci", "openxlsx", "randomForestSRC", "survivalROC"))'
+R --slave  -e 'install.packages(c(“tidyverse”, “yaml”, “survminer”,  “Hmisc”, “smoothHR”, “reshape2”, “ggsci”,“openxlsx”, “randomForestSRC”, “survivalROC”))'
 
 ## Install Bioconductor packages
 R --slave  -e 'BiocManager::install(c("SIAMCAT"))'
@@ -28,3 +28,7 @@ R --slave  -e 'BiocManager::install(c("SIAMCAT"))'
 #	 \
 #	&& apt-get clean \
 #	&& rm -rf /var/lib/apt/lists/*
+
+wget https://github.com/saezlab/DREAM_HF_microbiome/raw/main/DreamHF.zip
+
+unzip DreamHF.zip -d /home/vagrant/
