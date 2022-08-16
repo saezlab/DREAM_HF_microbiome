@@ -1,7 +1,7 @@
 # load libraries 
 library(tidyverse)
+library(ResourceSelection) # for hoslem test
 set.seed(198657)
-source("src/Hosmer.test_etc.R")
 
 # create output folder
 mainDir <- getwd()
@@ -83,12 +83,15 @@ print(HarrellC["C Index"])
 collect.scores <- rbind(collect.scores, HarrellC["C Index"])
 
 # HOSLEM ***********************************************************************
-pred <- Coxar(model, years=16.9)
-test <- HosLem.test(model$y, pred, plot=FALSE)
-p.val <- test$pval
+test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
+p.val <- test$p.value
 collect.scores <- cbind(collect.scores, p.val)
-colnames(collect.scores) <- c("HarrellsC","p.val")
+colnames(collect.scores) <- c("HarrellsC","Hoslem.p.val")
 
 write.csv(collect.scores, file=paste0(PARAM$folder.result, 
                                     Sys.Date(),"_",
                                     "real.data.scores.csv"))
+
+
+
+# g	number of bins to use to calculate quantiles.

@@ -262,4 +262,104 @@ hoslem.total <- rbind(collect.hoslem, collect.hoslem.u)
 write.csv(hoslem.total, file=paste0(PARAM$folder.result, 
                                       Sys.Date(),"_",
                                       "Hosmer_lemesrow_scores.csv"))
-# save.image(paste0(PARAM$folder.result, Sys.Date(),"cox.results.RData"))
+save.image(paste0(PARAM$folder.result, Sys.Date(),"cox.results.RData"))
+
+
+
+
+
+###############################################################################
+# Hosmer lemesrow test based on library(ResourceSelection)
+###############################################################################
+univ_models$age_sex = cox.mod.subset
+univ_models$total_cov = cox.mod.total.meta
+
+library(ResourceSelection)
+
+predict.uni <- function(univ_models, test.df, filename){
+  print("Validation scores of Cox model in test or validation data")
+  # Validation *****************************
+  for (i in predictors){
+    scores=as.data.frame(predict(univ_models[[i]], 
+                                 newdata=test.df,     
+                                 # the expected number of events given the covariates and follow-up time
+                                 se.type="expected")) 
+    scores = scores %>%
+      set_colnames(c("Score")) %>%
+      rownames_to_column(var = "SampleID")
+    # normalize range from 0-1
+    univ_models[[i]]$scores <- scores
+    
+    # Validation *****************************
+    # Read the real labels that were hidden from that algorithm
+    labels <- test.df
+    labels$SampleID <- rownames(test.df)
+    
+    # normalize the scores btw 0-1
+    range01 <- function(x){(x-min(x, na.rm = TRUE))/(max(x, na.rm = TRUE)-min(x, na.rm = TRUE))}
+    labels$Event_time = range01(labels$Event_time)
+    scores$Score = range01(scores$Score)
+    
+    # Align the user provided scores with the true event times
+    true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
+    
+    # Calculate Harrell's C statistics
+    HarrellC <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
+    
+    print(HarrellC["C Index"])
+    univ_models[[i]]$HarrellC <- HarrellC["C Index"]
+    
+    # hoslem test from 
+    test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
+    univ_models[[i]]$Hoslem.pval.rs <- test$p.value
+    uni.models.rs=univ_models
+  }
+  return(uni.models.rs)
+}
+
+# Validation of univariate cox model in TEST and VALIDATION cohorts ************
+univ_models_ontest <- predict.uni(univ_models, df.test, "ontest_rs")
+univ_models_onval <- predict.uni(univ_models, df.val, "onvalidation_rs")
+
+#################
+predict.multi <- function(multi_model, test.df, filename){
+  print("Validation scores of Cox model")
+  
+  # Validation *******************************************************************
+  scores=as.data.frame(predict(multi_model, 
+                               newdata=test.df, 
+                               se.type="expected"))
+  scores = scores %>%
+    set_colnames(c("Score")) %>%
+    rownames_to_column(var = "SampleID")
+  
+  # normalize the scores btw 0-1
+  scores$Score = range01(scores$Score)
+  
+  multi_model$scores <- scores
+  
+  # HarrellC index *************************************************************
+  print("HarrellC index of Cox model")
+  # Read the real labels that were hidden from that algorithm
+  labels <- test.df
+  labels$SampleID<- rownames(test.df)
+  labels$Event_time = range01(labels$Event_time)
+  
+  # Align the user provided scores with the true event times
+  true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
+  
+  # Calculate Harrell's C statistics
+  HarrellC <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
+  multi_model$HarrellC <- HarrellC["C Index"]
+  print(multi_model$HarrellC)
+  
+  # hoslem test from 
+  test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
+  multi_model$Hoslem.pval.rs <- test$p.value
+  print(multi_model$Hoslem.pval.rs)
+  return(multi_model)
+}
+
+# Validation of multivariate cox model in TEST and VALIDATION cohorts **********
+multicox_ontest <- predict.multi(cox.multivar, df.test, "cox_multivar_ontest_rs")
+multicox_onval <- predict.multi(cox.multivar, df.val, "cox_multivar_onvalidation_rs")
