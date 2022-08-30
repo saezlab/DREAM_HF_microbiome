@@ -14,7 +14,7 @@ FROM: bioconductor/bioconductor_docker:devel
 # Part of other dependencies: "magrittr" (tidyverse),
 
 ## Install CRAN packages
-R --slave  -e 'install.packages(c("tidyverse", "yaml", "survminer",  "Hmisc", "smoothHR", "reshape2", "ggsci", "openxlsx", "randomForestSRC", "survivalROC"))'
+R --slave  -e 'install.packages(c("tidyverse", "yaml", "survminer",  "Hmisc", "smoothHR", "reshape2", "ggsci", "openxlsx", "randomForestSRC", "survivalROC", "ResourceSelection", "GGally"))'
 
 ## Install Bioconductor packages
 R --slave  -e 'BiocManager::install(c("SIAMCAT", "microbiome"))'
