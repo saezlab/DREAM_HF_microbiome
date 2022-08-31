@@ -23,7 +23,7 @@ grpkm <- function(grps,surv,weights=NULL) {
   res
 }
 
-# Below, pred is the predicted absolute risk (e.g. by Coxar)
+ # Below, pred is the predicted absolute risk (e.g. by Coxar)
 HosLem.test <- function(surv,pred,plot=TRUE,DF.reduce=2) {
   # Cook-Ridker version test uses DF.reduce=2 (default)
   # Cook NR, Ridker PM. (2009) Ann Intern Med. 150(11): 795-802
@@ -34,7 +34,7 @@ HosLem.test <- function(surv,pred,plot=TRUE,DF.reduce=2) {
   if(!DF.reduce%in%c(1,2)) stop('Please specify DF.reduce = 1 or 2')
   if(!is.Surv(surv)) stop('Please use a survival object')
   version <- c('D\'Agostino-Nam','Cook-Ridker')[DF.reduce]
-  grp <- as.numeric(cut2(pred,g=10))
+  grp <- as.numeric(cut2(pred, g=12))
   pj <- as.numeric(by(pred,grp,mean))
   idx <- TRUE
   while(any(idx)&length(pj)>3) {

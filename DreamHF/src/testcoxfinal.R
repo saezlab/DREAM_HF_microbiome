@@ -4,6 +4,7 @@ library(survminer)
 library(survival)
 library(microbiome)
 library(magrittr)
+library(randomForestSRC)
 set.seed(198657)
 
 mainDir <- getwd()
@@ -21,19 +22,34 @@ PARAM <- list()
 PARAM$folder.R <- paste0(getwd(), "/")
 PARAM$folder.result <- paste0(PARAM$folder.R, "output/")
 PARAM$folder.data <- paste0(PARAM$folder.R, "/")
+source(paste0(mainDir,"/src/Hosmer.test.R"))
 
 # load data
 print("Load data")
-S.test <- read.csv(file = paste0(PARAM$folder.data, "test/pheno_test.csv"), row.names=1,)
-S.train <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1,)
-S.val <- read.csv(file = paste0(PARAM$folder.data, "validation/pheno_validation.csv"), row.names=1,)
+S.test <- read.csv(file = paste0(PARAM$folder.data, 
+                                 "test/pheno_test.csv"), 
+                   row.names=1,)
+S.train <- read.csv(file = paste0(PARAM$folder.data, 
+                                  "train/pheno_training.csv"),
+                   row.names=1,)
+S.val <- read.csv(file = paste0(PARAM$folder.data, 
+                                "validation/pheno_validation.csv"), 
+                  row.names=1,)
 
-O.test <- read.csv(file = paste0(PARAM$folder.data, "test/readcounts_test.csv"), row.names=1,)
-O.train <- read.csv(file = paste0(PARAM$folder.data, "train/readcounts_training.csv"), row.names=1,)
-O.val <- read.csv(file = paste0(PARAM$folder.data, "validation/readcounts_validation.csv"), row.names=1,)
+O.test <- read.csv(file = paste0(PARAM$folder.data, 
+                                 "test/readcounts_test.csv"), 
+                   row.names=1,)
+O.train <- read.csv(file = paste0(PARAM$folder.data, 
+                                  "train/readcounts_training.csv"), 
+                    row.names=1,)
+O.val <- read.csv(file = paste0(PARAM$folder.data, 
+                                "validation/readcounts_validation.csv"), 
+                  row.names=1,)
 ###############################################################################
 # set parameters
 alpha_level = 1
+endpoints <- c("Event_time", "Event")
+
 # change rownames with fake ids for convenience
 rows <- rownames(O.train)  
 seq=seq(1:c(length(rows)))
@@ -44,6 +60,10 @@ rownames(O.train) <- fakename
 
 data <- cbind(meta(S.train), t(O.train))
 data$Event_time<- as.numeric(data$Event_time)
+# exclude any minus value
+data <- subset(data, Event_time > 0 & Event_time < 17)
+data <- subset(data, !is.na(Event_time))
+data <- subset(data, !is.na(Event))  
 
 # define potential predictors
 predictors <- c(colnames(S.train), rownames(O.train))
@@ -59,33 +79,53 @@ rownames(O.val) <- fakename
 
 df.test <- cbind(meta(S.test), t(O.test))
 df.test$Event_time <- as.numeric(df.test$Event_time)
+# exclude any minus value
+df.test <- subset(df.test, Event_time > 0 & Event_time < 17)
+
 df.val <- cbind(meta(S.val), t(O.val))
 df.val$Event_time <- as.numeric(df.val$Event_time)
-rm(O.train, O.test, O.val, S.test, S.val, S.train,fakename )
+# exclude any minus value
+df.val <- subset(df.val, Event_time > 0 & Event_time < 17)
+
+# remove unnecessary files and save the main files
+#rm(O.train, O.test, O.val, S.test, S.val, S.train,fakename )
+#save(data, df.test, df.val, file=paste0(PARAM$folder.result,"dream_files.RData"))
+
+#SUBSET FOR TESTING
+data=data[1:300,1:20]
+predictors=predictors[1:20]
+
+predictors <- setdiff(predictors, endpoints)
 ###############################################################################
-# Univariate Cox regression analysis
-###############################################################################
+# Univariate Cox regression analysis*******************************************
+
 # A Cox regression of time to death on the time-constant covariates is specified as follow:
 # cox ph model: allows both categorical and numeric variables 
 # with categorical variable
 # we cant estimate survival/hazard  but estimate hazard ratio
-print("Cox survival univariate model building")
 # the baseline survival function
-cox.mod.subset <- coxph(Surv(Event_time, Event) ~ Sex + Age, 
-                        data=data)
-summary(cox.mod.subset)
-print(cox.zph(cox.mod.subset))
+# 
+# data$age_fc <- cut(data$Age, c(0,54, 59,64, 69,74,79, 89, 110),
+# labels = c(paste(c(50,55,60,65,70,75,80),
+# c(54,59,64,69,74,79,89), sep='-'), "90+"))
+
+cox.mod.sex <- coxph(Surv(Event_time, Event) ~ Sex + Age ,
+                     data=data) 
+
+summary(cox.mod.sex)
+print(cox.zph(cox.mod.sex))
 # forest plot, graphical summary of a Cox model
 pdf(file=paste0(PARAM$folder.result, 
                 Sys.Date(), "_",
                 "ggforest_cox.subset.pdf"))
-ggforest(cox.mod.subset, data=data)
+ggforest(cox.mod.sex, data=data)
 dev.off() # Turn the PDF device off
 
 # All meta variables *****************************
-cox.mod.total.meta <- coxph(Surv(Event_time, Event) ~ BodyMassIndex + Age + Smoking + 
+cox.mod.total.meta <- coxph(Surv(Event_time, Event) ~ BodyMassIndex + Smoking + 
                               PrevalentDiabetes + SystolicBP + BPTreatment + 
-                              NonHDLcholesterol + PrevalentCHD + Sex + PrevalentHFAIL, 
+                              NonHDLcholesterol + PrevalentCHD + Sex + 
+                              PrevalentHFAIL + Age, 
                             data=data)
 summary(cox.mod.total.meta)
 print(cox.zph(cox.mod.total.meta))
@@ -96,12 +136,16 @@ pdf(file=paste0(PARAM$folder.result,
 ggforest(cox.mod.total.meta, data=data)
 dev.off() # Turn the PDF device off
 
-###############################################################################
+# All univariate variables *****************************
 # univariate models for all predictors
 univ_formulas <- sapply(predictors,
                         function(x) as.formula(paste('Surv(Event_time, Event) ~', x)))
 
 univ_models <- lapply(univ_formulas, function(x){coxph(x, data = data)})
+univ_models$age_sex = cox.mod.sex
+univ_models$total_cov = cox.mod.total.meta
+
+###############################################################################
 # Results *****************************
 print("Univariate Model Results")
 results <- lapply(predictors, function(x) {
@@ -130,25 +174,25 @@ neat_results <- results %>%
   dplyr:: ungroup() %>% 
   dplyr::mutate(HR = round(exp(coef),3)) %>% 
   dplyr::mutate(HR_lower_95 = round(exp(coef - 1.96*se_coef), 3),
-         HR_upper_95 = round(exp(coef + 1.96*se_coef), 3),
-         P = round(p, 5),
-         Coefficient = round(coef, 3),
-         "Coefficient SE" = round(se_coef, 3)) %>% 
+                HR_upper_95 = round(exp(coef + 1.96*se_coef), 3),
+                P = round(p, 5),
+                Coefficient = round(coef, 3),
+                "Coefficient SE" = round(se_coef, 3)) %>% 
   dplyr:: mutate(HR = paste0(HR, " (95% CI, ", HR_lower_95, "-", HR_upper_95, ")")) %>% 
-  dplyr::select(Predictor = predictor, Coefficient, "Coefficient SE", HR, "p","P_adjusted", "west_stat_value", "west_stat") %>%
+  dplyr::select(Predictor = predictor, Coefficient, "Coefficient SE", HR, "p",
+                "P_adjusted", "west_stat_value", "west_stat") %>%
   dplyr::mutate(HR = ifelse(is.na(Coefficient), NA, HR))  %>% 
   dplyr::filter(P_adjusted < alpha_level) %>% 
   dplyr::arrange(P_adjusted) %>% 
-  set_colnames(c("Predictor", "Coefficient", "Coefficient SE", "HR","P-value" ,"P (adjusted)", "west Statistic Value", "west Statistic"))
+  set_colnames(c("Predictor", "Coefficient", "Coefficient SE", "HR","P-value",
+                 "P (adjusted)", "west Statistic Value", "west Statistic"))
 # export file
 write.csv(neat_results, file=paste0(PARAM$folder.result, 
-                              Sys.Date(), "_",
-                              "univariate_results.csv"))
+                                    Sys.Date(), "_",
+                                    "univariate_results.csv"))
 
 ###############################################################################
-# Get validation scores for all univariate and calculate Harrellc
-###############################################################################
-
+# Get validation scores for univariate models and calculate Harrellc
 predict.uni <- function(univ_models, test.df, filename){
   print("Validation scores of Cox model in test or validation data")
   # Validation *****************************
@@ -184,56 +228,17 @@ predict.uni <- function(univ_models, test.df, filename){
 univ_models_ontest <- predict.uni(univ_models, df.test, "ontest")
 univ_models_onval <- predict.uni(univ_models, df.val, "onvalidation")
 
-# Multivariable model **********************************************************
-print("Cox survival multivariate model building")
-cox.multivar <- coxph(Surv(Event_time, Event)~., data=data)
+save(cox.mod.sex, cox.mod.total.meta, univ_models_ontest, univ_models_onval, 
+     file=paste0(PARAM$folder.result, "univ_models.RData"))
 
-predict.multi <- function(multi_model, test.df, filename){
-  print("Validation scores of Cox model")
-  
-# Validation *******************************************************************
-  scores=as.data.frame(predict(multi_model, 
-                               newdata=test.df, 
-                               se.type="expected"))
-  scores = scores %>%
-    set_colnames(c("Score")) %>%
-    rownames_to_column(var = "SampleID")
-  
-  multi_model$scores <- scores
-  
-  # HarrellC index *************************************************************
-  print("HarrellC index of Cox model")
-  # Read the real labels that were hidden from that algorithm
-  labels <- test.df
-  labels$SampleID<- rownames(test.df)
-  
-  # Align the user provided scores with the true event times
-  true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
-  
-  # Calculate Harrell's C statistics
-  HarrellC <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
-  multi_model$HarrellC <- HarrellC["C Index"]
-  print(multi_model$HarrellC)
-  return(multi_model)
-}
-
-# Validation of multivariate cox model in TEST and VALIDATION cohorts **********
-multicox_ontest <- predict.multi(cox.multivar, df.test, "cox_multivar_ontest_")
-multicox_onval <- predict.multi(cox.multivar, df.val, "cox_multivar_onvalidation_")
-
-###############################################################################
-# Hosmer lemesrow test
-###############################################################################
-source("src/Hosmer.test_etc.R")
 # Multivariate models **********************************************************
-model.list <- list(cox_subset = cox.mod.subset, 
-                   cox_meta_total = cox.mod.total.meta, 
-                   cox_multivar = cox.multivar)
+model.list <- list(cox_subset = cox.mod.sex, 
+                   cox_meta_total = cox.mod.total.meta)
 collect.hoslem <- data.frame()
 
 for (model in model.list){
   print(model$formula)
-  pred <- Coxar(model, years=16.9, bh=NULL)
+  pred <- Coxar(model, years=10, bh=NULL)
   test <- HosLem.test(model$y, pred, plot=FALSE)
   p.val <-  test$pval
   collect.hoslem <- rbind(collect.hoslem, p.val)
@@ -242,40 +247,16 @@ for (model in model.list){
 rownames(collect.hoslem) <- names(model.list)
 collect.hoslem$p.adj <- p.adjust(collect.hoslem$p.val)
 
-# Univariate models ************************************************************
-collect.hoslem.u <- data.frame()
-
-for (mName in predictors){
-  print(univ_models[[mName]]$formula)
-  pred <- Coxar(univ_models[[mName]], years=16.9)
-  test <- HosLem.test(univ_models[[mName]]$y, pred, plot=FALSE)
-  p.val <-  test$pval
-  collect.hoslem.u <- rbind(collect.hoslem.u, p.val)
-  colnames(collect.hoslem.u) <- "p.val"
-  
-}
-rownames(collect.hoslem.u) <- predictors
-collect.hoslem.u$p.adj <- p.adjust(collect.hoslem.u$p.val)
-
 # export file
-hoslem.total <- rbind(collect.hoslem, collect.hoslem.u)
-write.csv(hoslem.total, file=paste0(PARAM$folder.result, 
-                                      Sys.Date(),"_",
-                                      "Hosmer_lemesrow_scores.csv"))
-save.image(paste0(PARAM$folder.result, Sys.Date(),"cox.results.RData"))
+write.csv(collect.hoslem, file=paste0(PARAM$folder.result, 
+                                    Sys.Date(),"_",
+                                    "Hosmer_lemesrow_scores.csv"))
 
 
 
-
-
-###############################################################################
-# Hosmer lemesrow test based on library(ResourceSelection)
-###############################################################################
-univ_models$age_sex = cox.mod.subset
-univ_models$total_cov = cox.mod.total.meta
-
+# Hosmer lemesrow test based on library(ResourceSelection)**********************
 library(ResourceSelection)
-
+library(GGally)
 predict.uni <- function(univ_models, test.df, filename){
   print("Validation scores of Cox model in test or validation data")
   # Validation *****************************
@@ -286,10 +267,11 @@ predict.uni <- function(univ_models, test.df, filename){
                                  se.type="expected")) 
     scores = scores %>%
       set_colnames(c("Score")) %>%
-      rownames_to_column(var = "SampleID")
+      rownames_to_column(var = "SampleID") %>%
+      drop_na()
     # normalize range from 0-1
     univ_models[[i]]$scores <- scores
-    
+    print(i)
     # Validation *****************************
     # Read the real labels that were hidden from that algorithm
     labels <- test.df
@@ -298,8 +280,14 @@ predict.uni <- function(univ_models, test.df, filename){
     # normalize the scores btw 0-1
     range01 <- function(x){(x-min(x, na.rm = TRUE))/(max(x, na.rm = TRUE)-min(x, na.rm = TRUE))}
     labels$Event_time = range01(labels$Event_time)
-    scores$Score = range01(scores$Score)
-    
+   
+     # only apply 0-1 when it is not all 0s
+    if (length(unique(scores$Score))==1){
+      scores$Score=scores$Score
+    } else {
+      scores$Score = range01(scores$Score)
+    }
+
     # Align the user provided scores with the true event times
     true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
     
@@ -310,8 +298,17 @@ predict.uni <- function(univ_models, test.df, filename){
     univ_models[[i]]$HarrellC <- HarrellC["C Index"]
     
     # hoslem test from 
-    test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
-    univ_models[[i]]$Hoslem.pval.rs <- test$p.value
+    if (length(unique(scores$Score))==1){
+      univ_models[[i]]$Hoslem.pval.rs <- "untested"
+    } else {
+      test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
+      print(test)
+      univ_models[[i]]$Hoslem.pval.rs <- test$p.value
+    }
+    
+    # test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
+    # print(test)
+    # univ_models[[i]]$Hoslem.pval.rs <- test$p.value
     uni.models.rs=univ_models
   }
   return(uni.models.rs)
@@ -321,45 +318,81 @@ predict.uni <- function(univ_models, test.df, filename){
 univ_models_ontest <- predict.uni(univ_models, df.test, "ontest_rs")
 univ_models_onval <- predict.uni(univ_models, df.val, "onvalidation_rs")
 
-#################
-predict.multi <- function(multi_model, test.df, filename){
-  print("Validation scores of Cox model")
-  
-  # Validation *******************************************************************
-  scores=as.data.frame(predict(multi_model, 
-                               newdata=test.df, 
-                               se.type="expected"))
-  scores = scores %>%
-    set_colnames(c("Score")) %>%
-    rownames_to_column(var = "SampleID")
-  
-  # normalize the scores btw 0-1
-  scores$Score = range01(scores$Score)
-  
-  multi_model$scores <- scores
-  
-  # HarrellC index *************************************************************
-  print("HarrellC index of Cox model")
-  # Read the real labels that were hidden from that algorithm
-  labels <- test.df
-  labels$SampleID<- rownames(test.df)
-  labels$Event_time = range01(labels$Event_time)
-  
-  # Align the user provided scores with the true event times
-  true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
-  
-  # Calculate Harrell's C statistics
-  HarrellC <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
-  multi_model$HarrellC <- HarrellC["C Index"]
-  print(multi_model$HarrellC)
-  
-  # hoslem test from 
-  test <- hoslem.test(true.scores, scores$Score) # x numeric observations, y expected values.
-  multi_model$Hoslem.pval.rs <- test$p.value
-  print(multi_model$Hoslem.pval.rs)
-  return(multi_model)
-}
+###############################################################################
+# Random survival forest********************************************************
+set.seed(9876)
 
-# Validation of multivariate cox model in TEST and VALIDATION cohorts **********
-multicox_ontest <- predict.multi(cox.multivar, df.test, "cox_multivar_ontest_rs")
-multicox_onval <- predict.multi(cox.multivar, df.val, "cox_multivar_onvalidation_rs")
+# Labels are given for parameter optimization
+dff1 <- as.data.frame(data[, c(endpoints, predictors)])
+rownames(dff1)<-NULL
+
+# Labels are hidden for the second data subset 
+dff2 <- as.data.frame(df.test[, predictors])
+rownames(dff2)<-NULL
+
+# Train Random Survival Model with the labeled training data
+rf1 <- rfsrc(Surv(Event_time, Event) ~ .,
+             data = dff1,
+             importance = FALSE)
+
+# Predictions for the test data
+samples <- which(rowSums(is.na(dff2))==0)
+pred2 <- predict(rf1, dff2[samples, ])
+scores <- pred2$predicted; names(scores) <- rownames(df.test)[samples]
+res <- data.frame(SampleID=rownames(df.test), 
+                  Score=sample(scores[rownames(df.test)]))  # Fully random
+res <- res %>%  drop_na()
+# Write the scoring table for evaluation
+write.csv(res, file=paste0(PARAM$folder.result, 
+                           Sys.Date(), 
+                           "random_forest_scores.csv"), 
+          quote=FALSE, row.names=FALSE)
+
+# Harrells C *******************************************************************
+labels=data
+labels$SampleID<- rownames(data)
+
+# Align the user provided scores with the true event times
+true.scores <- as.numeric(labels[res$SampleID,"Event_time"])
+
+# Calculate Harrell's C statistics
+C <- Hmisc::rcorr.cens(res$Score, true.scores, outx=FALSE)
+print(C)
+
+Cindex.train <- get.cindex(rf1$yvar[,1], rf1$yvar[,2], rf1$predicted.oob)
+
+# Hoslem test ***************************************************************** 
+test.rs <- hoslem.test(true.scores, res$Score) # x numeric observations, y expected values.
+#with aki code
+pred <- Coxar(model, years=10, bh=NULL)
+test <- HosLem.test(model$y, pred, plot=FALSE)
+
+#combine all
+stats_rfs <- data.frame(harrellc = C[[1]], 
+                        harrellc.train = Cindex.train,
+                        hosLem.pval = test$pval,
+                        hoslemrs.pval= test.rs$p.value) 
+# export stats
+write.csv(stats_rfs, file=paste0(PARAM$folder.result, 
+                         Sys.Date(), 
+                         "random_forest_stats.csv"))
+
+
+
+# plot rfs
+pdf(paste0(PARAM$folder.result, "Variable Importance RSF.pdf"), 
+    width = 10, 
+    height = 8)
+
+jk.obj <- subsample(rf1)
+
+par(oma = c(0.5, 10, 0.5, 0.5))
+par(cex.axis = 2.0, 
+    cex.lab = 2.0, 
+    cex.main = 2.0, 
+    mar = c(6.0,17,1,1), 
+    mgp = c(4, 1, 0))
+plot(jk.obj, xlab = "Variable Importance (x 100)", cex = 1.2)
+dev.off()
+
+
