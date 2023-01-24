@@ -1,18 +1,5 @@
 #example codes that can be run both on synthetic and real dataset
 # load libraries 
-library(tidyverse)
-library(survminer)
-library(survival)
-library(microbiome)
-library(magrittr)
-library(randomForestSRC)
-library(ResourceSelection)
-library(GGally)
-set.seed(198657)
-
-args=(commandArgs(TRUE))
-PARAM <- list()
-
 #this argument is to specify the path of input folder
 #the input folder structure is similar to DreamHF.zip both for synthetic and real dataset
 PARAM$folder.R <- paste0(args[1]) 
@@ -63,11 +50,11 @@ predictors <- c(colnames(S.train), rownames(O.train))
 
 # choose only HF cases and eliminate "NA"
 df.train <- subset(df.train, select=predictors, PrevalentHFAIL==0&!is.na(Event))
-
+df.train = df.train %>% 
+  dplyr::select(!PrevalentHFAIL) 
 # remove PrevalentHFAIL from all matrix
 predictors <- predictors[! predictors %in% "PrevalentHFAIL"]
-df.train = df.train %>% 
-  select(!PrevalentHFAIL) 
+
 ###############################################################################
 # Fix and combine train and test datasets
 # change rownames with fake ids for convenience
@@ -75,15 +62,16 @@ rownames(O.test) <- fakename
 
 df.test <- cbind(meta(S.test), t(O.test))
 df.test$Event_time <- as.numeric(df.test$Event_time)
+df.test = df.test %>% 
+  dplyr::select(!PrevalentHFAIL) 
 # exclude any minus value
 df.test <- subset(df.test, Event_time > 0 & Event_time < 17)
-df.test = df.test %>% 
-  select(!PrevalentHFAIL) 
 
 # remove unnecessary files and save the main files
 rm(O.train, O.test, S.test, S.train, fakename)
 predictors <- setdiff(predictors, endpoints)
-# Random survival forest********************************************************
+
+
 # Random survival forest********************************************************
 set.seed(9876)
 
@@ -105,7 +93,7 @@ samples <- which(rowSums(is.na(dff2))==0)
 
 pred <- predict(rf1, dff2[samples, ])
 scores <- pred$predicted; names(scores) <- rownames(df.test)[samples]
-res2 <- data.frame(SampleID=rownames(df.test), 
+res <- data.frame(SampleID=rownames(df.test), 
                   Score=sample(scores[rownames(df.test)]))  # Fully random
 res <- res %>%  drop_na()
 
@@ -114,9 +102,12 @@ write.csv(res, file=paste0(PARAM$folder.result,
                            "scores.csv"), 
           quote=FALSE, row.names=FALSE)
 
+# SCORING ONLY
+
 # read score file for test data
 scores <- read.csv(file = paste0(PARAM$folder.result, 
                                   "scores.csv"))
+collect.rsf <- data.frame()
 
 # Harrells C *******************************************************************
 labels=df.test[samples]
@@ -138,35 +129,133 @@ if (length(unique(scores$Score))==1){
 
 # Align the user provided scores with the true event times
 true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
+# remove NAs  for us, not valid for participants
+scores <- scores %>%  drop_na()
+eventinfo <- as.numeric(labels[scores$SampleID,"Event"])
 
 # Calculate Harrell's C statistics
 C <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
 print(C)
 
 # Hoslem test ***************************************************************** 
-# https://stackoverflow.com/questions/44368326/hosmer-lemeshow-statistic-in-r
-
-hosmerlem <- function(y, yhat, g=10)
-       {cutyhat <- cut(yhat, breaks = quantile(yhat, 
-                                               probs=seq(0,1, 1/g)), 
-                       include.lowest=TRUE)
-       obs <- xtabs(cbind(1 - y, y) ~ cutyhat)
-       expect <- xtabs(cbind(1 - yhat, yhat) ~ cutyhat)
-       chisq <- sum((obs - expect)^2/expect)
-       P <- 1 - pchisq(chisq, g - 2)
-       return(list(chisq=chisq,p.value=P))}
-
-# remove NAs  for us, not valid for participants
-scores <- scores %>%  drop_na()
-hoslem <- hosmerlem(y=true.scores, yhat=scores$Score)
-hoslem$harrelC <- C["C Index"][[1]]
-
 # run with event info not event time
-eventinfo <- as.numeric(labels[scores$SampleID,"Event"])
-test <- hoslem.test(eventinfo, scores$Score) # x numeric observations, y expected values.
-hoslem$resourcePval <- test$p.value
+hoslem.test <- hoslem.test(eventinfo, scores$Score) 
+collect.rsf <- rbind(collect.rsf, hoslem.test$p.value)
+
+collect.rsf <- cbind(C["C Index"][[1]], collect.rsf)
 
 # Write the scoring table for evaluation
-write.csv(hoslem, file=paste0(PARAM$folder.result, 
-                         "stats.csv"), 
+write.csv(collect.rsf, file=paste0(PARAM$folder.result, 
+                         "stats.rsf.csv"), 
           quote=FALSE, row.names=FALSE)
+
+
+# Cox ********************************************************
+cox.mod.sex <- coxph(Surv(Event_time, Event) ~ Sex+Age,
+                     data=df.train) 
+
+cox.mod.sex.s <- coxph(Surv(Event_time, Event) ~  Age + strata(Sex),
+                       data=df.train) 
+
+cox.mod.total.meta <- coxph(Surv(Event_time, Event) ~ BodyMassIndex + Smoking + 
+                              PrevalentDiabetes + SystolicBP + BPTreatment + 
+                              NonHDLcholesterol + PrevalentCHD + Sex  + Age, 
+                            data=df.train)
+
+cox.mod.total.meta.s <- coxph(Surv(Event_time, Event) ~ BodyMassIndex + Smoking + 
+                                PrevalentDiabetes + SystolicBP + BPTreatment + 
+                                NonHDLcholesterol + PrevalentCHD +  Age + strata(Sex), 
+                              data=df.train)
+
+
+model.list <- list(cox_sex = cox.mod.sex, 
+                   cox_sex.s = cox.mod.sex.s,
+                   cox_meta_total = cox.mod.total.meta,
+                   cox_meta_total.s = cox.mod.total.meta.s)
+
+collect.stats <- data.frame()
+collect.harrel <- data.frame()
+
+for (model in model.list){  
+  print(model$formula)
+  scores=as.data.frame(predict(model, 
+                               newdata=df.test,     
+                               se.type="expected")) 
+  
+  scores = scores %>%
+    set_colnames(c("Score")) %>%
+    rownames_to_column(var = "SampleID")
+  scores <- scores %>%  drop_na()
+  # range the predicted values
+  # only apply 0-1 when it is not all 0s
+  scores$Score = range01(scores$Score)
+  
+  
+  # Align the user provided scores with the true event times
+  true.scores <- as.numeric(labels[scores$SampleID,"Event_time"])
+  
+  # Calculate Harrell's C statistics
+  C <- Hmisc::rcorr.cens(scores$Score, true.scores, outx=FALSE)
+  print(C)
+  collect.harrel<- rbind(collect.harrel, C["C Index"])
+  
+  # Calculate Hoslem
+  # 1
+  eventinfo <- as.numeric(labels[scores$SampleID,"Event"])
+  hoslem.test <- hoslem.test(eventinfo, scores$Score) # x numeric observations, y expected values.
+  collect.stats <- rbind(collect.stats, hoslem.test$p.value)
+
+}
+
+collect.stats <- cbind(collect.harrel, collect.stats)
+collect.stats[5,] <-  collect.rsf
+
+colnames(collect.stats) <- c("HarrellC", "hoslem.test")
+rownames (collect.stats)<- c("cox_sex",
+                             "cox_sex.s",
+                             "cox_meta_total",
+                             "cox_meta_total.s",
+                             "random survival")
+
+write.csv(collect.stats, file=paste0(PARAM$folder.result, 
+                                     "stats.total.csv"), 
+          quote=FALSE, row.names=FALSE)
+
+# plotting
+scores$dataset <- factor(scores$dataset,levels = c("train", "test", "scoring"))
+scores$model <- factor(scores$model,levels = c("Cox_subset", "Cox_allcovariates", "RSF"))
+
+scores$harrelC=as.numeric(scores$harrelC)
+
+p= ggplot(scores, aes(x=dataset, y=harrelC,  fill=dataset)) +    
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  xlab("") + ylab("Harrell's C index")+
+  geom_bar(stat="identity", color="black")  + theme_classic() +
+  theme(axis.text.x = element_text(color = "grey20", size = 15, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        axis.text.y = element_text(color = "grey20", size = 15, angle = 90, hjust = 1, vjust = 0, face = "plain"),
+        axis.title.x = element_text(color = "grey20", size = 15, angle = 90, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20", size = 15, angle = 90, hjust = .5, vjust = .5, face = "plain"))+
+  facet_grid(rows=.~scores$model)
+ggsave(p, file=paste0(PARAM$folder.results, 
+                               Sys.Date(),'_', 
+                               "barplot_harrelc.pdf"), width = 5, height=4)
+# Set up for ggplot
+kmi <- rep("KM",length(km_fit$time))
+km_df <- data.frame(km_fit$time,km_fit$surv,kmi)
+names(km_df) <- c("Time","Surv","Model")
+
+coxi <- rep("Cox",length(cox_fit$time))
+cox_df <- data.frame(cox_fit$time,cox_fit$surv,coxi)
+names(cox_df) <- c("Time","Surv","Model")
+
+rfi <- rep("RF",length(r_fit$unique.death.times))
+rf_df <- data.frame(r_fit$unique.death.times,avg_prob,rfi)
+names(rf_df) <- c("Time","Surv","Model")
+
+plot_df <- rbind(km_df,cox_df,rf_df)
+
+p <- ggplot(plot_df, aes(x = Time, y = Surv, color = Model))
+p + geom_line()
+
+
+
