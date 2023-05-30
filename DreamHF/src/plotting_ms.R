@@ -2,15 +2,18 @@
 library(readr)
 library(reshape2)
 library(ggplot2)
-#library(ggpubr)
+library(ggpubr)
 library(ggupset)
 library(tidyverse)
+library(patchwork)
 # set parameters
 mainDir <- getwd()
 PARAM <- list()
 PARAM$folder.R <- paste0(getwd(), "/")
 PARAM$folder.result <- paste0(PARAM$folder.R, "output/")
 PARAM$folder.data <- paste0(PARAM$folder.R, "final_results")
+PARAM$folder.synthetic <- paste0(PARAM$folder.R) #change here accordingly
+PARAM$folder.finrisk <- paste0(PARAM$folder.R) #change here accordingly
 
 bootstrap_Harrell_c <- read_csv(paste0(PARAM$folder.data, "/bootstrap_Harrell_c_baseline3.csv"))[,-1]
 
@@ -79,7 +82,9 @@ pharrelc.bar <- ggplot(Final_leaderboard, aes(x=`Teams/Participants`,
   scale_fill_manual(values=c("#7E57C2", "#7E57C2", "#7E57C2", "#1976D2", "#bdbdbd", 
                              "#bdbdbd", "#009688", "#bdbdbd", "#bdbdbd", "#bdbdbd")) +
   rremove("x.grid") +
-  coord_flip() + ggtitle("A")
+  coord_flip() + 
+  ggtitle("A")
+
 pharrelc.bar
 #################################################################################
 phoslem.bar <- ggplot(Final_leaderboard, aes(x=`Teams/Participants`, 
@@ -118,7 +123,9 @@ phoslem.bar <- ggplot(Final_leaderboard, aes(x=`Teams/Participants`,
   scale_fill_manual(values=c("#7E57C2", "#7E57C2", "#7E57C2", "#1976D2", "#bdbdbd", 
                              "#bdbdbd", "#009688", "#bdbdbd", "#bdbdbd", "#bdbdbd")) + 
   rremove("x.grid") +
-  coord_flip() + ggtitle("B")
+  coord_flip() + 
+  ggtitle("B")
+
 phoslem.bar
 #################################################################################
 # plot hoslem and harrelc bootstrep
@@ -127,7 +134,7 @@ pharrelc <- ggplot(df.harrelc, aes(x=`Teams/Participants`,
                                 color=`Teams/Participants`,
                                 fill=`Teams/Participants`)) +
   geom_violin(trim=FALSE) +
-  geom_boxplot(width=0.2, fill="white")   +  
+  geom_boxplot(width=0.2, fill="white", color="black")   +  
   scale_color_manual(values=c("#7E57C2", "#7E57C2", "#7E57C2", "#1976D2", "#bdbdbd", 
                               "#bdbdbd", "#009688", "#bdbdbd", "#bdbdbd", "#bdbdbd")) +
   scale_fill_manual(values=c("#7E57C2", "#7E57C2", "#7E57C2", "#1976D2", "#bdbdbd", 
@@ -145,7 +152,8 @@ pharrelc <- ggplot(df.harrelc, aes(x=`Teams/Participants`,
                    labels=c("Team 7 (9731666)", "Team 6 (9731713)","Team 5 (9731454)",
                             "Team 4 (9731490)","Team 3 (9731636)", "Baseline Total", "Baseline Model All Covariates",
                             "Baseline Model Age-Sex", "DenverFINRISKHacky", "SB2")) +
-  coord_flip() + ggtitle("C")
+  coord_flip() + 
+  ggtitle("C")
 pharrelc
 #################################################################################
 phoslem <- ggplot(df.hoslem, aes(x=`Teams/Participants`, 
@@ -173,7 +181,7 @@ phoslem <- ggplot(df.hoslem, aes(x=`Teams/Participants`,
   coord_flip() + ggtitle("D")
 phoslem
 #################################################################################
-figure2 <- pharrelc.bar+ phoslem.bar+ pharrelc+ phoslem + 
+figure2 <- pharrelc.bar + phoslem.bar + pharrelc+ phoslem + 
                      plot_layout(widths = c(1, 1))
 
 figure2
@@ -183,6 +191,8 @@ ggsave(figure2, filename = paste0(PARAM$folder.result,
 
 #################################################################################
 # pair comparisons
+#################################################################################
+
 pair_model <- as.data.frame(read_csv(paste0(PARAM$folder.data, "/pair_average_eval.csv")))
 pair_model$harrell_c.r <- round(pair_model$harrell_c, digits = 3)
 pair_model=as_tibble(pair_model)
@@ -227,4 +237,118 @@ ggsave(p.pairs, filename = paste0(PARAM$folder.result,
                                   "Figure_pairs.pdf"),
        width = 15, height = 5)
 
+###############################################################################
+# comparing synthetic vs real in different groups
+###############################################################################
+# finrisk
+S.test.F <- read.csv(file = paste0(PARAM$folder.finrisk, 
+                                 "test/pheno_test.csv"), 
+                   row.names=1,)
+S.train.F <- read.csv(file = paste0(PARAM$folder.finrisk, 
+                                  "train/pheno_training.csv"),
+                    row.names=1,)
+S.score.F <- read.csv(file = paste0(PARAM$folder.finrisk, 
+                                "score/pheno_validation.csv"), 
+                  row.names=1,)
+S.test.F$data <- "FINRISK"
+S.train.F$data <- "FINRISK"
+S.score.F$data <- "FINRISK"
 
+S.test.F$Group <- "Test"
+S.train.F$Group <- "Train"
+S.score.F$Group <- "Score"
+# synthetic
+S.test.S <- read.csv(file = paste0(PARAM$folder.synthetic, 
+                                   "test/pheno_test.csv"), 
+                     row.names=1,)
+S.train.S <- read.csv(file = paste0(PARAM$folder.synthetic, 
+                                    "train/pheno_training.csv"),
+                      row.names=1,)
+S.score.S <- read.csv(file = paste0(PARAM$folder.synthetic, 
+                                  "score/pheno_validation.csv"), 
+                    row.names=1,)
+
+S.test.S$data <- "Synthetic"
+S.train.S$data <- "Synthetic"
+S.score.S$data <- "Synthetic"
+
+S.test.S$Group <- "Test"
+S.train.S$Group <- "Train"
+S.score.S$Group <- "Score"
+
+# bind all tables
+phe.table <-rbind(S.test.S, S.train.S, S.score.S, S.test.F, S.train.F, S.score.F)
+df=melt(phe.table)
+###############################################################################
+# plot categorical variables
+library("viridis")
+p.bar <- phe.table %>%
+  select(Group, data, Sex, Smoking, BPTreatment, PrevalentCHD,
+         PrevalentHFAIL, PrevalentDiabetes, Event) %>%
+  melt() %>%
+  count(Group, data, variable, value) %>%
+  mutate(Groupset = paste0(Group, " ", data)) %>%
+  ggplot(aes(x = Group, 
+             y = n, 
+             fill = Groupset, 
+             color=as.factor(value))) +
+  geom_bar(stat="identity", 
+           position=position_dodge()) +
+  facet_wrap(variable~., scales = "free")+
+  scale_color_viridis(discrete = TRUE, option = "D")+
+  scale_fill_viridis(discrete = TRUE) +
+  labs(y = "", 
+       x="", 
+       color = "Group",
+       fill = "Dataset",
+       title = "Comparison of FINRISK and Synthetic Daatset in subgroupos")+
+  theme_classic() 
+
+
+p.bar
+ggsave(filename=paste0(PARAM$folder.result, "barplot_categorical.pdf"),
+       plot=p.bar) 
+
+###############################################################################
+# same but density plot
+p.density <- phe.table %>%
+  select(Group, data, Age, Event_time, BodyMassIndex, SystolicBP, NonHDLcholesterol) %>%
+  melt() %>%  
+  mutate(Group = paste0(data, " ", Group)) %>%
+  ggplot() + 
+  #geom_histogram(aes(y=..density..), colour="black", fill="white") +
+  geom_density(mapping = aes(x = value, 
+                             y = ..count.., 
+                             color = as.character(Group)),
+                             alpha = 0.8,
+                             position = "identity",
+               size=1) + 
+  facet_wrap(.~variable, scales = "free", nrow = 4) +
+  labs(y = "Total # of Individuals", 
+       color = "Dataset", 
+       fill = "Dataset",
+       title = "Comparing two datasets:0 for FINRISK and 1 for Synthetic") +
+  scale_color_viridis(discrete = TRUE, option = "D")+
+  scale_fill_viridis(discrete = TRUE) +
+  theme_classic() +  theme(legend.position="bottom") 
+
+p.density
+ggsave(filename=paste0(PARAM$folder.result, "density_continous.pdf"),
+       plot=p.density) 
+###############################################################################
+#scatter for continous 
+df = phe.table %>% pivot_wider(names_from = data, values_from = Age)
+
+p.scatter <- df %>% 
+  ggplot(aes(x=Synthetic, y=FINRISK)) + 
+  geom_point(color=) +
+  #facet_wrap(.~variable, scales = "free", nrow = 4) +
+  labs(y = "Total # of Individuals", 
+       color = "Dataset", 
+       fill = "Dataset",
+       title = "Comparing FINRISK and Synthetic Datasets") +
+  scale_color_viridis(discrete = TRUE, option = "D")+
+  scale_fill_viridis(discrete = TRUE) +
+  theme_classic() +  theme(legend.position="bottom") 
+
+p.scatter
